@@ -30,3 +30,19 @@ xe = Vec.([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0), (
 reinit!(cv, xe)
 
 
+# debug quadratic element
+ip_geo = Lagrange{1,RefCube,1}()
+ip_f = Lagrange{1,RefCube,2}()
+ip_jump = FerriteCon2022.JumpInterpolation(ip_f)
+ip_mid = FerriteCon2022.MidPlaneInterpolation(ip_geo)
+
+qr = QuadratureRule{1,RefCube}(3)
+
+cv = FerriteCon2022.CohesiveVectorValues(qr, ip_jump, ip_mid)
+
+xe = Vec.([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)])
+reinit!(cv, xe)
+
+ue = zeros(12)
+ue[6] = ue[8] = ue[12] = 1.0
+function_value(cv, 3, ue)
