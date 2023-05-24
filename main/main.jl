@@ -7,13 +7,8 @@ using FerriteMeshParser
 node_perm = (1,2,4,3)
 FerriteMeshParser.create_cell(::Type{FerriteCohesiveZones.CohesiveQuadrilateral}, node_numbers, ::FerriteMeshParser.AbaqusMeshFormat) = CohesiveQuadrilateral(ntuple(i->node_numbers[node_perm[i]], length(node_numbers)))
 
-function run_simulation(; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1)
-    
-    dim = 2
-
+function run_simulation(grid_file; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1, tmax=2.0, max_iter = 20, tol = 1e-8, nsteps = 101, dim = 2, xymax = 0.1)
     # read mesh with FerriteMeshParser
-    xymax = 0.1 # mm
-    grid_file = "neper/n6-id4.inp"
     temp_grid = get_ferrite_grid(grid_file; user_elements=Dict("COH2D4"=>CohesiveQuadrilateral))
     nodes = [Node(ntuple(i->node.x[i]*xymax, dim)) for node in temp_grid.nodes]
     grid = Grid(temp_grid.cells, nodes; nodesets=temp_grid.nodesets, cellsets=temp_grid.cellsets)
@@ -90,7 +85,6 @@ function run_simulation(; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1)
     u = zeros(ndofs(dh))
 
     uᵖ = 0.03 * 0.1 # mm 
-    tmax = 1.0
     ch = ConstraintHandler(dh)
     add!(ch, fh_bulk, Dirichlet(:u, getfaceset(grid, "top"), (x,t)->uᵖ * t/tmax, 2))
     add!(ch, fh_bulk, Dirichlet(:u, getfaceset(grid, "bottom"), (x,t)->0.0, 2))
@@ -98,11 +92,8 @@ function run_simulation(; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1)
     close!(ch)
 
     # Newton-Raphson solver
-    max_iter = 20
-    tol = 1e-8
     reaction_forces = Ferrite.Vec{dim,Float64}[]
     fv = FaceVectorValues(QuadratureRule{dim-1, RefTetrahedron}(2), ip_bulk, ip_bulk_geo)
-    nsteps = 101
     displacements = Vector{Float64}[]
     for (i, t) in enumerate(range(0.0, tmax; length=nsteps))
         println("__________________________________")
@@ -129,5 +120,3 @@ function run_simulation(; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1)
     end
     return displacements, dh
 end
-
-displacements, dh = run_simulation()

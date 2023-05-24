@@ -1,6 +1,5 @@
-module FerriteCon2022
+module FerriteVizLogo
 
-# Write your package code here.
 using Ferrite
 using FerriteCohesiveZones
 

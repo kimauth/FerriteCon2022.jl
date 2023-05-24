@@ -1,80 +1,63 @@
-using GLMakie
-using Colors 
-include("grain_boundary_computation.jl")
+using Ferrite
+import FerriteViz
+using FerriteCohesiveZones
 
-# run simulation and get global variable "displacements" and "dh"
-include("../main/main.jl")
-
-#  find coordinates from grid + plot
-function logo_step_data(dh, u, polygon_nodes)
-    grid = dh.grid
-    nodal_u = reshape_to_nodes(dh, u, :u)
-    coordinates = [Point2f(node.x .+ nodal_u[1:2, node_id]) for (node_id, node) in enumerate(grid.nodes)]
-    points = [[coordinates[node_idx] for node_idx in nodes_around_grain] for nodes_around_grain in polygon_nodes]
-  
-    mesh_coords = Vector{Point2f}[]
-    for cell in grid.cells
-        color = :transparent
-        coords = coordinates[collect(cell.nodes)]
-        if isa(cell, CohesiveQuadrilateral)
-            coords .= coords[[1,2,4,3]]
-        end
-        push!(mesh_coords, coords)
-    end
-
-    return points, mesh_coords
+# Dispatch to skip rendering of cohesive elements
+FerriteViz.ntriangles(::CohesiveQuadrilateral) = 0
+function FerriteViz.decompose!(coord_offset, coord_matrix, ref_coord_matrix, triangle_offset, triangle_matrix, grid, cell::CohesiveQuadrilateral)
+    (coord_offset, triangle_offset)
 end
+Ferrite.getdim(::CohesiveQuadrilateral) = 2
 
-# compute the nodes that make up the grain polygons
-grid = dh.grid
-cellset = grid.cellsets["COH2D4"]
+# Dispatch to allow plotting cell labels for cohesive elements
+FerriteViz.midpoint(cell::FerriteCohesiveZones.CohesiveCell, points) = Makie.Point2f((1/2) * (points[cell.nodes[1]] + points[cell.nodes[2]]))
 
-min_x, max_x = extrema(node->node.x[1], grid.nodes)
-min_y, max_y = extrema(node->node.x[2], grid.nodes)
-addfaceset!(grid, "boundary", x-> x[1] ≈ min_x || x[1] ≈ max_x || x[2] ≈ min_y || x[2] ≈ max_y)
+# run simulation and compute displacements with corresponding dof handler
+include("../main/main.jl")
+solutions, dh = run_simulation("../neper/n6-id4.inp" ; order_f = 1, order_geo = 1, nqp_coh = 2, nqp_bulk = 1, tmax=2.0)
 
-polygon_nodes = get_nodes_around_grains(grid, getcellset(grid, "COH2D4"), getfaceset(grid, "boundary"))
-
-#################################
-# fix aspect ration according to actual dimensions
-factor = 5. 
-nodal_umax = reshape_to_nodes(dh, factor * last(displacements), :u)
-max_coordinates = [Point2f(node.x .+ nodal_umax[1:2, node_id]) for (node_id, node) in enumerate(grid.nodes)]
-min_x, max_x = extrema([c[1] for c in max_coordinates])
-min_y, max_y = extrema([c[2] for c in max_coordinates])
-
+# Colors for the grains
+using Colors
 colors = [
     Colors.JULIA_LOGO_COLORS.purple,
     Colors.JULIA_LOGO_COLORS.red,
-    Colors.JULIA_LOGO_COLORS.red,
-    Colors.JULIA_LOGO_COLORS.green,
     Colors.JULIA_LOGO_COLORS.blue,
-    Colors.JULIA_LOGO_COLORS.purple,
+    Colors.JULIA_LOGO_COLORS.green,
 ]
 
-step = Observable(1)
-u = @lift factor * displacements[$step]
-plot_data = @lift logo_step_data(dh, $u, polygon_nodes)
-points = @lift $plot_data[1]
-mesh_coords = @lift $plot_data[2]
+# Color the grains
+cellvalues = zeros(length(dh.grid.cells))
+cellvalues .= NaN
+cellvalues[1:16] .= 1.0
+cellvalues[17:29] .= 2.0
+cellvalues[30:45] .= 2.0
+cellvalues[46:61] .= 3.0
+cellvalues[62:75] .= 1.0
+cellvalues[76:91] .= 4.0
 
-f = Figure(resolution=(1500,1500*max_y/max_x))
-ax = Axis(f[1,1], limits=(min_x, max_x, min_y, max_y))
-hidedecorations!(ax)
-hidespines!(ax)
+############ Actual plotting of the animation #########
+import GLMakie
 
-colsize!(f.layout, 1, Aspect(1, max_x/max_y))
-display(f)
-for i in eachindex(points[])
-    line = @lift $points[i]
-    poly!(ax, line; color=colors[i])
-end
-for i in eachindex(mesh_coords[])
-    poly = @lift $mesh_coords[i]
-    poly!(ax, poly; color=:transparent, strokewidth = 4)
-end 
+# Prepare the grid for plotting
+plotter = FerriteViz.MakiePlotter(dh, solutions[1])
 
-# record gif
-record(f, "plotting/logo_animation.gif", eachindex(displacements); framerate = 30) do i
-    step[] = i
+# Fix aspect ration according to actual dimensions
+factor = 5. 
+nodal_umax = reshape_to_nodes(dh, factor * last(solutions), :u)
+max_coordinates = [GLMakie.Point2f(node.x .+ nodal_umax[1:2, node_id]) for (node_id, node) in enumerate(dh.grid.nodes)]
+min_x, max_x = extrema([c[1] for c in max_coordinates])
+min_y, max_y = extrema([c[2] for c in max_coordinates])
+
+# Prepare a figure
+fig = GLMakie.Figure(resolution=(1500,1500*max_y/max_x))
+ax = GLMakie.Axis(fig[1,1], limits=(min_x, max_x, min_y, max_y))
+GLMakie.hidedecorations!(ax)
+GLMakie.hidespines!(ax)
+FerriteViz.cellplot!(ax, plotter,cellvalues,colormap=GLMakie.cgrad(colors, 4, categorical=true),deformation_field=:u)
+
+# FerriteViz.wireframe!(plotter,markersize=0,strokewidth=2,deformation_field=:u,celllabels=true)
+FerriteViz.wireframe!(plotter,markersize=0,strokewidth=2,deformation_field=:u)
+
+GLMakie.record(fig,"logo.gif",[solutions[1:5:end];reverse(solutions[1:5:end])],framerate=20) do solution
+    FerriteViz.update!(plotter, solution)
 end
