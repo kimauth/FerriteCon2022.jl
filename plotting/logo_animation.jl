@@ -53,6 +53,7 @@ fig = GLMakie.Figure(resolution=(1500,1500*max_y/max_x))
 ax = GLMakie.Axis(fig[1,1], limits=(min_x, max_x, min_y, max_y))
 GLMakie.hidedecorations!(ax)
 GLMakie.hidespines!(ax)
+GLMakie.colsize!(fig.layout, 1, GLMakie.Aspect(1, max_x/max_y))
 FerriteViz.cellplot!(ax, plotter,cellvalues,colormap=GLMakie.cgrad(colors, 4, categorical=true),deformation_field=:u)
 
 # FerriteViz.wireframe!(plotter,markersize=0,strokewidth=2,deformation_field=:u,celllabels=true)
